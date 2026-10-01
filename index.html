@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>N-Body Gravitational Orbit Simulation</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-white min-h-screen flex flex-col">
+<div class="p-3">
+  <h1 class="text-2xl font-bold text-indigo-400 text-center mb-1">N-Body Gravitational Orbit</h1>
+  <p class="text-center text-gray-400 text-xs mb-2">Click canvas to place bodies. They attract each other via gravity.</p>
+
+  <div class="flex flex-wrap gap-2 justify-center mb-2">
+    <div class="bg-gray-800 rounded-lg px-2 py-1 flex items-center gap-2">
+      <label class="text-xs text-gray-400">G constant:</label>
+      <input type="range" id="gSlider" min="10" max="500" value="100" class="w-24 accent-indigo-400" aria-label="Gravitational constant">
+      <span id="gVal" class="text-xs text-indigo-300 w-8">100</span>
+    </div>
+    <div class="bg-gray-800 rounded-lg px-2 py-1 flex items-center gap-2">
+      <label class="text-xs text-gray-400">Time step:</label>
+      <input type="range" id="dtSlider" min="1" max="10" value="4" class="w-24 accent-purple-400" aria-label="Time step">
+      <span id="dtVal" class="text-xs text-purple-300 w-4">4</span>
+    </div>
+    <div class="bg-gray-800 rounded-lg px-2 py-1 flex items-center gap-2">
+      <label class="text-xs text-gray-400">Trail:</label>
+      <input type="range" id="trailSlider" min="20" max="300" value="80" class="w-24 accent-cyan-400" aria-label="Trail length">
+      <span id="trailVal" class="text-xs text-cyan-300 w-8">80</span>
+    </div>
+    <button id="resetBtn" aria-label="Reset simulation" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm transition">Reset</button>
+  </div>
+
+  <div class="flex flex-wrap gap-2 justify-center mb-2">
+    <span class="text-xs text-gray-500 self-center">Presets:</span>
+    <button id="presetFig8" aria-label="Figure-8 orbit preset" class="px-3 py-1 bg-indigo-800 hover:bg-indigo-700 rounded text-sm transition">Figure-8</button>
+    <button id="presetBinary" aria-label="Binary star preset" class="px-3 py-1 bg-blue-800 hover:bg-blue-700 rounded text-sm transition">Binary Star</button>
+    <button id="presetSolar" aria-label="Solar system preset" class="px-3 py-1 bg-purple-800 hover:bg-purple-700 rounded text-sm transition">Solar System</button>
+  </div>
+</div>
+
+<div class="relative flex-1">
+  <canvas id="gravCanvas" class="w-full block cursor-crosshair" aria-label="Gravitational simulation canvas - click to place bodies"></canvas>
+  <div id="hoverInfo" class="absolute top-2 left-2 bg-gray-800 bg-opacity-80 rounded px-2 py-1 text-xs hidden"></div>
+</div>
+
+<script>
+const canvas = document.getElementById('gravCanvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = Math.max(250, window.innerHeight - 180);
+}
+resize();
+window.addEventListener('resize', () => { resize(); });
+
+let G = 100, dt = 0.04, trailLen = 80;
+document.getElementById('gSlider').addEventListener('input', e => { G=parseInt(e.target.value); document.getElementById('gVal').textContent=G; });
+document.getElementById('dtSlider').addEventListener('input', e => { dt=parseInt(e.target.value)*0.01; document.getElementById('dtVal').textContent=e.target.value; });
+document.getElementById('trailSlider').addEventListener('input', e => { trailLen=parseInt(e.target.value); document.getElementById('trailVal').textContent=trailLen; });
+
+const COLORS = ['#818cf8','#34d399','#fbbf24','#f87171','#38bdf8','#a78bfa','#4ade80','#fb923c'];
+let bodies = [];
+let colorIdx = 0;
+let hoveredBody = -1;
+
+class Body {
+  constructor(x,y,vx,vy,mass,color) {
+    this.x=x; this.y=y; this.vx=vx; this.vy=vy;
+    this.mass=mass; this.color=color||COLORS[colorIdx++%COLORS.length];
+    this.trail=[]; this.ax=0; this.ay=0;
+    this.radius = Math.max(4, Math.cbrt(mass)*1.5);
+  }
+}
+
+function resetSim() { bodies=[]; colorIdx=0; }
+document.getElementById('resetBtn').addEventListener('click', resetSim);
+
+// Presets
+document.getElementById('presetFig8').addEventListener('click', () => {
+  resetSim();
+  const W=canvas.width, H=canvas.height;
+  const cx=W/2, cy=H/2;
+  // Approximate figure-8 initial conditions (Chenciner-Montgomery)
+  const m=1000, s=120;
+  const v=0.93;
+  bodies.push(new Body(cx-s,cy, 0.347*v*120, 0.533*v*120, m, COLORS[0]));
+  bodies.push(new Body(cx+s,cy, 0.347*v*120, 0.533*v*120, m, COLORS[1]));
+  bodies.push(new Body(cx,cy, -0.694*v*120, -1.066*v*120, m, COLORS[2]));
+  G=100; dt=0.04;
+});
+document.getElementById('presetBinary').addEventListener('click', () => {
+  resetSim();
+  const W=canvas.width, H=canvas.height;
+  const cx=W/2, cy=H/2;
+  bodies.push(new Body(cx-120,cy, 0,70, 1500, '#fbbf24'));
+  bodies.push(new Body(cx+120,cy, 0,-70, 1500, '#60a5fa'));
+});
+document.getElementById('presetSolar').addEventListener('click', () => {
+  resetSim();
+  const W=canvas.width, H=canvas.height;
+  const cx=W/2, cy=H/2;
+  bodies.push(new Body(cx,cy, 0,0, 5000, '#fde047'));
+  bodies.push(new Body(cx+140,cy, 0,88, 100, '#93c5fd'));
+  bodies.push(new Body(cx-200,cy, 0,-68, 200, '#4ade80'));
+  G=150; dt=0.04;
+});
+
+canvas.addEventListener('click', (e) => {
+  const rect=canvas.getBoundingClientRect();
+  const x=(e.clientX-rect.left)*(canvas.width/rect.width);
+  const y=(e.clientY-rect.top)*(canvas.height/rect.height);
+  bodies.push(new Body(x,y,0,0,500+Math.random()*500));
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  const rect=canvas.getBoundingClientRect();
+  const mx=(e.clientX-rect.left)*(canvas.width/rect.width);
+  const my=(e.clientY-rect.top)*(canvas.height/rect.height);
+  hoveredBody=-1;
+  for(let i=0;i<bodies.length;i++) {
+    if(Math.hypot(bodies[i].x-mx,bodies[i].y-my)<bodies[i].radius+8) { hoveredBody=i; break; }
+  }
+  const info=document.getElementById('hoverInfo');
+  if(hoveredBody>=0) {
+    const b=bodies[hoveredBody];
+    info.classList.remove('hidden');
+    info.textContent = `Mass: ${Math.round(b.mass)} | Speed: ${Math.hypot(b.vx,b.vy).toFixed(1)}`;
+  } else { info.classList.add('hidden'); }
+});
+
+function computeForces() {
+  for(const b of bodies) { b.ax=0; b.ay=0; }
+  for(let i=0;i<bodies.length;i++) {
+    for(let j=i+1;j<bodies.length;j++) {
+      const bi=bodies[i], bj=bodies[j];
+      const dx=bj.x-bi.x, dy=bj.y-bi.y;
+      const r2=dx*dx+dy*dy;
+      const minR=Math.max(bi.radius+bj.radius,20);
+      if(r2<minR*minR) {
+        // Merge
+        const totalM=bi.mass+bj.mass;
+        bi.x=(bi.x*bi.mass+bj.x*bj.mass)/totalM;
+        bi.y=(bi.y*bi.mass+bj.y*bj.mass)/totalM;
+        bi.vx=(bi.vx*bi.mass+bj.vx*bj.mass)/totalM;
+        bi.vy=(bi.vy*bi.mass+bj.vy*bj.mass)/totalM;
+        bi.mass=totalM;
+        bi.radius=Math.max(4,Math.cbrt(totalM)*1.5);
+        bodies.splice(j,1); j--;
+        continue;
+      }
+      const r=Math.sqrt(r2)+0.01;
+      const F=G*bi.mass*bj.mass/r2;
+      const fx=F*dx/r, fy=F*dy/r;
+      bi.ax+=fx/bi.mass; bi.ay+=fy/bi.mass;
+      bj.ax-=fx/bj.mass; bj.ay-=fy/bj.mass;
+    }
+  }
+}
+
+function step() {
+  computeForces();
+  for(const b of bodies) {
+    b.vx+=b.ax*dt; b.vy+=b.ay*dt;
+    b.x+=b.vx*dt; b.y+=b.vy*dt;
+    b.trail.push({x:b.x,y:b.y});
+    if(b.trail.length>trailLen) b.trail.shift();
+  }
+}
+
+function draw() {
+  ctx.fillStyle='rgba(5,10,20,0.85)';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  step();
+  for(const b of bodies) {
+    // Trail
+    if(b.trail.length>1) {
+      ctx.beginPath();
+      ctx.moveTo(b.trail[0].x,b.trail[0].y);
+      for(let k=1;k<b.trail.length;k++) {
+        const alpha=k/b.trail.length;
+        ctx.lineTo(b.trail[k].x,b.trail[k].y);
+      }
+      ctx.strokeStyle=b.color+'88';
+      ctx.lineWidth=1.5;
+      ctx.stroke();
+    }
+    // Body
+    const grad=ctx.createRadialGradient(b.x-b.radius*0.3,b.y-b.radius*0.3,0,b.x,b.y,b.radius);
+    grad.addColorStop(0,'#ffffff');
+    grad.addColorStop(0.3,b.color);
+    grad.addColorStop(1,'rgba(0,0,0,0.3)');
+    ctx.fillStyle=grad;
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.radius,0,Math.PI*2); ctx.fill();
+  }
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
